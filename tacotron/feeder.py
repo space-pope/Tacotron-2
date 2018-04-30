@@ -32,6 +32,7 @@ class Feeder(threading.Thread):
 		self._hparams = hparams
 		self._cleaner_names = [x.strip() for x in hparams.cleaners.split(',')]
 		self._offset = 0
+		self._cmudict = hparams.tacotron_use_cmudict
 
 		# Load metadata
 		self._mel_dir = os.path.join(os.path.dirname(metadata_filename), 'mels')
