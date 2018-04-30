@@ -114,7 +114,8 @@ hparams = tf.contrib.training.HParams(
 	tacotron_dropout_rate = 0.5, #dropout rate for all convolutional layers + prenet
 
 	tacotron_teacher_forcing_ratio = 1., #Value from [0., 1.], 0.=0%, 1.=100%, determines the % of times we force next decoder inputs
-	
+
+	tacotron_use_cmudict = True,
 
 	#Wavenet Training TODO
 
