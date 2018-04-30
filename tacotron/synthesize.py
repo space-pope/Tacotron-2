@@ -73,7 +73,6 @@ def run_synthesis(args, checkpoint_path, output_dir):
 def tacotron_synthesize(args):
 	hparams.parse(args.hparams)
 	os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-	output_dir = 'tacotron_' + args.output_dir
 
 	try:
 		checkpoint_path = tf.train.get_checkpoint_state(
@@ -85,6 +84,6 @@ def tacotron_synthesize(args):
 				args.checkpoint))
 
 	if args.mode == 'eval':
-		run_eval(args, checkpoint_path, output_dir)
+		run_eval(args, checkpoint_path, args.output_dir)
 	else:
-		run_synthesis(args, checkpoint_path, output_dir)
+		run_synthesis(args, checkpoint_path, args.output_dir)

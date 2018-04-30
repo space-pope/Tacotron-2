@@ -62,6 +62,20 @@ class Feeder(threading.Thread):
 		self.token_targets.set_shape(self._placeholders[3].shape)
 		self.linear_targets.set_shape(self._placeholders[4].shape)
 
+	def limit_data(self, max_hours, hparams):
+		cutoff = len(self._metadata)
+		total = 0
+		frame_shift_ms = hparams.hop_size / hparams.sample_rate
+		adjusted_max = max_hours * 3600 / frame_shift_ms
+		for i, x in enumerate(self._metadata):
+			total += int(x[4])
+			if total >= adjusted_max:
+				cutoff = i
+				break
+		self._metadata = self._metadata[:cutoff + 1]
+		hours = total * frame_shift_ms / 3600
+		log('Limited metadata to %d examples (%.2f hours)' % (cutoff, hours))
+
 	def start_in_session(self, session):
 		self._session = session
 		self.start()
