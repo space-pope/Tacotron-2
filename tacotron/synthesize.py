@@ -3,7 +3,7 @@ import os
 import re
 from hparams import hparams, hparams_debug_string
 from tacotron.synthesizer import Synthesizer
-import tensorflow as tf 
+import tensorflow as tf
 import time
 from tqdm import tqdm
 
@@ -38,7 +38,8 @@ def run_synthesis(args, checkpoint_path, output_dir):
 		metadata = [line.strip().split('|') for line in f]
 		frame_shift_ms = hparams.hop_size / hparams.sample_rate
 		hours = sum([int(x[4]) for x in metadata]) * frame_shift_ms / (3600)
-		print('Loaded metadata for {} examples ({:.2f} hours)'.format(len(metadata), hours))
+		print('Loaded metadata for {} examples ({:.2f} hours)'.format(
+			len(metadata), hours))
 
 	if args.GTA==True:
 		synth_dir = os.path.join(output_dir, 'gta')
@@ -52,13 +53,21 @@ def run_synthesis(args, checkpoint_path, output_dir):
 	mel_dir = os.path.join(args.input_dir, 'mels')
 	wav_dir = os.path.join(args.input_dir, 'audio')
 	with open(os.path.join(synth_dir, 'map.txt'), 'w') as file:
-		for i, meta in enumerate(tqdm(metadata)):
-			text = meta[5]
-			mel_filename = os.path.join(mel_dir, meta[1])
-			wav_filename = os.path.join(wav_dir, meta[0])
-			mel_output_filename = synth.synthesize(text, i+1, synth_dir, None, mel_filename)
+		with open(os.path.join(synth_dir, 'wavenet_train.txt'), 'w') as wavenet:
+			for i, meta in enumerate(tqdm(metadata)):
+				text = meta[5]
+				mel_filename = os.path.join(mel_dir, meta[1])
+				wav_filename = os.path.join(wav_dir, meta[0])
+				timesteps = meta[3]
+				mel_output_filename = synth.synthesize(text, i+1, synth_dir,
+													   None, mel_filename)
 
-			file.write('{}|{}|{}|{}\n'.format(text, mel_filename, mel_output_filename, wav_filename))
+				wavenet.write('{}|{}|{}|{}\n'.format(wav_filename,
+													 mel_output_filename,
+													 timesteps, text))
+				file.write('{}|{}|{}|{}\n'.format(text, mel_filename,
+												  mel_output_filename,
+												  wav_filename))
 	print('synthesized mel spectrograms at {}'.format(synth_dir))
 
 def tacotron_synthesize(args):
@@ -67,10 +76,13 @@ def tacotron_synthesize(args):
 	output_dir = 'tacotron_' + args.output_dir
 
 	try:
-		checkpoint_path = tf.train.get_checkpoint_state(args.checkpoint).model_checkpoint_path
+		checkpoint_path = tf.train.get_checkpoint_state(
+			args.checkpoint).model_checkpoint_path
 		print('loaded model at {}'.format(checkpoint_path))
 	except:
-		raise AssertionError('Cannot restore checkpoint: {}, did you train a model?'.format(args.checkpoint))
+		raise AssertionError(
+			'Cannot restore checkpoint: {}, did you train a model?'.format(
+				args.checkpoint))
 
 	if args.mode == 'eval':
 		run_eval(args, checkpoint_path, output_dir)
