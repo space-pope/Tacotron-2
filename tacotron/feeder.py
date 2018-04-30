@@ -1,11 +1,11 @@
-import numpy as np 
+import numpy as np
 import os
 import threading
 import time
 import traceback
-from tacotron.utils.text import text_to_sequence
+from tacotron.utils.text import cmudict, text_to_sequence
 from tacotron.utils.infolog import log
-import tensorflow as tf 
+import tensorflow as tf
 from hparams import hparams
 
 
@@ -103,6 +103,8 @@ class Feeder(threading.Thread):
 		self._offset += 1
 
 		text = meta[5]
+		if self._cmudict and random.random() < _p_cmudict:
+			text = ' '.join([self._maybe_get_ipa(word) for word in text.split(' ')])
 
 		input_data = np.asarray(text_to_sequence(text, self._cleaner_names), dtype=np.int32)
 		mel_target = np.load(os.path.join(self._mel_dir, meta[1]))
