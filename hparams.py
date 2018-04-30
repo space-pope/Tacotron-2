@@ -153,12 +153,10 @@ hparams = tf.contrib.training.HParams(
 	'it appears that oswald had only one caller in response to all of his fpcc activities,',
 	'he relied on the absence of the strychnia.',
 	'scoggins thought it was lighter.',
-	'''would, it is probable, have eventually overcome the reluctance of some of the prisoners at least, 
-	and would have possessed so much moral dignity''',
-	'''the only purpose of this whole sentence is to evaluate the scalability of the model for very long sentences. 
-	This is not even a long sentence anymore, it has become an entire paragraph. 
-	Should I stop now? Let\'s add this last sentence in which we talk about nothing special.''',
-	'Thank you so much for your support!!'
+	'would, it is probable, have eventually overcome the reluctance of some of the prisoners at least, and would have possessed so much moral dignity',
+    'the only purpose of this whole sentence is to evaluate the scalability of the model for very long sentences. This is not even a long sentence anymore, it has become an entire paragraph. Should I stop now? Let\'s add this last sentence in which we talk about nothing special.',
+	        'Thank you so much for your support!!',
+            'Who wants some chicken?'
 	]
 
 	)
