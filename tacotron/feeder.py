@@ -3,7 +3,8 @@ import os
 import threading
 import time
 import traceback
-from tacotron.utils.text import cmudict, text_to_sequence
+from tacotron.utils.cmudict import cmudict
+from tacotron.utils.text import text_to_sequence
 from tacotron.utils.infolog import log
 import tensorflow as tf
 from hparams import hparams
