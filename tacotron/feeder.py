@@ -173,7 +173,7 @@ class Feeder(threading.Thread):
 	def _maybe_get_ipa(self, word):
 		strip_emphasis = random.random() < 0.7
 		ipa = self._cmudict.lookup(word, strip_emphasis)
-		return '{}'.format(ipa[0]) \
+		return '{%s}' % ipa[0] \
 			if ipa is not None and random.random() < 0.5 else word
 
 
