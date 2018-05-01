@@ -53,8 +53,10 @@ if __name__ == '__main__':
 	# We access the input and output nodes
 	y = graph.get_tensor_by_name('frozen/model/inference/add:0')
 
+	config = tf.ConfigProto()
+	config.gpu_options.allow_growth = True
 	# Launch a Session
-	with tf.Session(graph=graph) as sess:
+	with tf.Session(config=config, graph=graph) as sess:
 		# Note: we don't need to initialize/restore anything
 		# There are no Variables in this graph, only hardcoded constants
 		y_out = sess.run(y, feed_dict=feed_dict)
