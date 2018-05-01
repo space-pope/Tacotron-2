@@ -1,89 +1,143 @@
-import tensorflow as tf 
+import re
+import tensorflow as tf
+from tensorflow.contrib.rnn import GRUCell
 from tacotron.utils.symbols import symbols
 from tacotron.utils.infolog import log
 from tacotron.models.helpers import TacoTrainingHelper, TacoTestHelper
 from tacotron.models.modules import *
 from tacotron.models.zoneout_LSTM import ZoneoutLSTMCell
 from tensorflow.contrib.seq2seq import dynamic_decode
-from tacotron.models.Architecture_wrappers import TacotronEncoderCell, TacotronDecoderCell
+from tacotron.models.Architecture_wrappers import (TacotronEncoderCell,
+													 TacotronDecoderCell)
 from tacotron.models.custom_decoder import CustomDecoder
 from tacotron.models.attention import LocationSensitiveAttention
+from tacotron.models.multihead_attention import MultiheadAttention
 
 
 
 class Tacotron():
 	"""Tacotron-2 Feature prediction Model.
 	"""
+
+	_bias_regex = re.compile(r'(?i)bias')
+
 	def __init__(self, hparams):
 		self._hparams = hparams
 
-	def initialize(self, inputs, input_lengths, mel_targets=None, stop_token_targets=None, linear_targets=None, gta=False):
+	def initialize(self, inputs, input_lengths, mel_targets=None,
+					 stop_token_targets=None, linear_targets=None, gta=False):
 		"""
 		Initializes the model for inference
 
 		sets "mel_outputs" and "alignments" fields.
 
 		Args:
-			- inputs: int32 Tensor with shape [N, T_in] where N is batch size, T_in is number of
-			  steps in the input time series, and values are character IDs
-			- input_lengths: int32 Tensor with shape [N] where N is batch size and values are the lengths
-			of each sequence in inputs.
-			- mel_targets: float32 Tensor with shape [N, T_out, M] where N is batch size, T_out is number
-			of steps in the output time series, M is num_mels, and values are entries in the mel
+			- inputs: int32 Tensor with shape [N, T_in] where N is batch size,
+			T_in is number of steps in the input time series,
+			and values are character IDs
+			- input_lengths: int32 Tensor with shape [N] where N is batch size
+			and values are the lengths of each sequence in inputs.
+			- mel_targets: float32 Tensor with shape [N, T_out, M]
+			where N is batch size, T_out is number of steps in the output
+			time series, M is num_mels, and values are entries in the mel
 			spectrogram. Only needed for training.
 		"""
 		if mel_targets is None and stop_token_targets is not None:
-			raise ValueError('no mel targets were provided but token_targets were given')
+			raise ValueError(
+				'no mel targets were provided but token_targets were given')
 		if mel_targets is not None and stop_token_targets is None and not gta:
-			raise ValueError('Mel targets are provided without corresponding token_targets')
-		if gta==False and self._hparams.predict_linear==True and linear_targets is None:
-			raise ValueError('Model is set to use post processing to predict linear spectrograms in training but no linear targets given!')
+			raise ValueError(
+				'Mel targets are provided without corresponding token_targets')
+		if not gta and self._hparams.predict_linear and linear_targets is None:
+			raise ValueError('Model is set to use post processing to predict \
+			linear spectrograms in training but no linear targets given!')
 		if gta and linear_targets is not None:
-			raise ValueError('Linear spectrogram prediction is not supported in GTA mode!')
+			raise ValueError(
+				'Linear spectrogram prediction is not supported in GTA mode!')
 
 		with tf.variable_scope('inference') as scope:
 			is_training = mel_targets is not None and not gta
 			batch_size = tf.shape(inputs)[0]
 			hp = self._hparams
-			#GTA is only used for predicting mels to train Wavenet vocoder, so we ommit post processing when doing GTA synthesis
+			# GTA is only used for predicting mels to train Wavenet vocoder,
+			# so we ommit post processing when doing GTA synthesis
 			post_condition = hp.predict_linear and not gta
 
 			# Embeddings ==> [batch_size, sequence_length, embedding_dim]
 			embedding_table = tf.get_variable(
-				'inputs_embedding', [len(symbols), hp.embedding_dim], dtype=tf.float32)
+				'inputs_embedding', [len(symbols), hp.embedding_dim],
+				dtype=tf.float32)
 			embedded_inputs = tf.nn.embedding_lookup(embedding_table, inputs)
 
+			self.style_weights = tf.zeros(
+				[hparams.gst_heads, hparams.gst_tokens])
+			self.gst_tokens = None
+			if hp.use_gst:
+				# Global style tokens (GST)
+				gst_tokens = tf.get_variable(
+					'style_tokens', [hp.gst_tokens,
+									 hp.embedding_dim // hp.gst_heads],
+					dtype=tf.float32,
+					initializer=tf.truncated_normal_initializer(stddev=0.5))
+				self.gst_tokens = gst_tokens
 
-			#Encoder Cell ==> [batch_size, encoder_steps, encoder_lstm_units]
+			# Encoder Cell ==> [batch_size, encoder_steps, encoder_lstm_units]
 			encoder_cell = TacotronEncoderCell(
-				EncoderConvolutions(is_training, kernel_size=hp.enc_conv_kernel_size,
-					channels=hp.enc_conv_channels, scope='encoder_convolutions'),
+				EncoderConvolutions(is_training,
+									kernel_size=hp.enc_conv_kernel_size,
+									channels=hp.enc_conv_channels,
+									scope='encoder_convolutions'),
 				EncoderRNN(is_training, size=hp.encoder_lstm_units,
-					zoneout=hp.tacotron_zoneout_rate, scope='encoder_LSTM'))
+							 zoneout=hp.tacotron_zoneout_rate,
+							 scope='encoder_LSTM'))
 
 			encoder_outputs = encoder_cell(embedded_inputs, input_lengths)
 
-			#For shape visualization purpose
+			# For shape visualization purpose
 			enc_conv_output_shape = encoder_cell.conv_output_shape
 
+			# GST embeddings
+			# [N, 1, 128]
+			style_embeddings = self.get_style_embeddings(
+				is_training, gst_tokens, mel_targets, batch_size, hp)
+			if style_embeddings is None:
+				style_embeddings = tf.expand_dims(encoder_outputs, axis=1)
 
-			#Decoder Parts
-			#Attention Decoder Prenet
-			prenet = Prenet(is_training, layer_sizes=hp.prenet_layers, scope='decoder_prenet')
-			#Attention Mechanism
-			attention_mechanism = LocationSensitiveAttention(hp.attention_dim, encoder_outputs,
-				mask_encoder=hp.mask_encoder, memory_sequence_length=input_lengths, smoothing=hp.smoothing, 
-				cumulate_weights=hp.cumulative_weights)
-			#Decoder LSTM Cells
+			# Add style embedding to every text encoder state
+			# [N, T_in, 128]
+			style_embeddings = tf.tile(style_embeddings,
+									   [1, tf.shape(encoder_outputs)[1], 1])
+			encoder_outputs = tf.concat([encoder_outputs, style_embeddings],
+										axis=-1)
+
+			# Decoder Parts
+			# Attention Decoder Prenet
+			prenet = Prenet(is_training, layer_sizes=hp.prenet_layers,
+							scope='decoder_prenet')
+			# Attention Mechanism
+			attention_mechanism = \
+				LocationSensitiveAttention(hp.attention_dim,
+										   encoder_outputs,
+										   mask_encoder=hp.mask_encoder,
+										   memory_sequence_length=input_lengths,
+										   smoothing=hp.smoothing,
+										   cumulate_weights=
+										   hp.cumulative_weights)
+			# Decoder LSTM Cells
 			decoder_lstm = DecoderRNN(is_training, layers=hp.decoder_layers,
-				size=hp.decoder_lstm_units, zoneout=hp.tacotron_zoneout_rate, scope='decoder_lstm')
-			#Frames Projection layer
-			frame_projection = FrameProjection(hp.num_mels * hp.outputs_per_step, scope='linear_transform')
+									  size=hp.decoder_lstm_units,
+									  zoneout=hp.tacotron_zoneout_rate,
+									  scope='decoder_lstm')
+			# Frames Projection layer
+			frame_projection = FrameProjection(
+				hp.num_mels * hp.outputs_per_step, scope='linear_transform')
 			#<stop_token> projection layer
-			stop_projection = StopProjection(is_training, scope='stop_token_projection')
+			stop_projection = StopProjection(
+				is_training, scope='stop_token_projection')
 
 
-			#Decoder Cell ==> [batch_size, decoder_steps, num_mels * r] (after decoding)
+			# Decoder Cell ==> [batch_size, decoder_steps, num_mels * r]
+			# (after decoding)
 			decoder_cell = TacotronDecoderCell(
 				prenet,
 				attention_mechanism,
@@ -93,64 +147,80 @@ class Tacotron():
 				mask_finished=hp.mask_finished)
 
 
-			#Define the helper for our decoder
+			# Define the helper for our decoder
 			if (is_training or gta) == True:
-				self.helper = TacoTrainingHelper(batch_size, mel_targets, stop_token_targets,
-					hp.num_mels, hp.outputs_per_step, hp.tacotron_teacher_forcing_ratio, gta)
+				self.helper = TacoTrainingHelper(
+					batch_size, mel_targets, stop_token_targets,
+					hp.num_mels, hp.outputs_per_step,
+					hp.tacotron_teacher_forcing_ratio, gta)
 			else:
-				self.helper = TacoTestHelper(batch_size, hp.num_mels, hp.outputs_per_step)
+				self.helper = TacoTestHelper(
+					batch_size, hp.num_mels, hp.outputs_per_step)
 
 
-			#initial decoder state
-			decoder_init_state = decoder_cell.zero_state(batch_size=batch_size, dtype=tf.float32)
+			# initial decoder state
+			decoder_init_state = decoder_cell.zero_state(batch_size=batch_size,
+														 dtype=tf.float32)
 
-			#Only use max iterations at synthesis time
+			# Only use max iterations at synthesis time
 			max_iters = hp.max_iters if not is_training else None
 
-			#Decode
-			(frames_prediction, stop_token_prediction, _), final_decoder_state, _ = dynamic_decode(
+			# Decode
+			(frames_prediction,
+			 stop_token_prediction, _), final_decoder_state, _ = dynamic_decode(
 				CustomDecoder(decoder_cell, self.helper, decoder_init_state),
 				impute_finished=hp.impute_finished,
 				maximum_iterations=max_iters)
 
 
-			# Reshape outputs to be one output per entry 
-			#==> [batch_size, non_reduced_decoder_steps (decoder_steps * r), num_mels]
-			decoder_output = tf.reshape(frames_prediction, [batch_size, -1, hp.num_mels])
-			stop_token_prediction = tf.reshape(stop_token_prediction, [batch_size, -1])
+			# Reshape outputs to be one output per entry
+			# ==> [batch_size, non_reduced_decoder_steps (decoder_steps * r),
+			#		num_mels]
+			decoder_output = tf.reshape(frames_prediction,
+										[batch_size, -1, hp.num_mels])
+			stop_token_prediction = tf.reshape(stop_token_prediction,
+												 [batch_size, -1])
 
-		
-			#Postnet
-			postnet = Postnet(is_training, kernel_size=hp.postnet_kernel_size, 
+			# Postnet
+			postnet = Postnet(is_training, kernel_size=hp.postnet_kernel_size,
 				channels=hp.postnet_channels, scope='postnet_convolutions')
 
-			#Compute residual using post-net ==> [batch_size, decoder_steps * r, postnet_channels]
+			# Compute residual using post-net
+			# ==> [batch_size, decoder_steps * r, postnet_channels]
 			residual = postnet(decoder_output)
 
-			#Project residual to same dimension as mel spectrogram 
+			# Project residual to same dimension as mel spectrogram
 			#==> [batch_size, decoder_steps * r, num_mels]
-			residual_projection = FrameProjection(hp.num_mels, scope='postnet_projection')
+			residual_projection = FrameProjection(hp.num_mels,
+													scope='postnet_projection')
 			projected_residual = residual_projection(residual)
 
 
-			#Compute the mel spectrogram
+			# Compute the mel spectrogram
 			mel_outputs = decoder_output + projected_residual
 
 
 			if post_condition:
-				#Based on https://github.com/keithito/tacotron/blob/tacotron2-work-in-progress/models/tacotron.py
-				#Post-processing Network to map mels to linear spectrograms using same architecture as the encoder
+				# Based on https://github.com/keithito/tacotron/blob/tacotron2-work-in-progress/models/tacotron.py
+				# Post-processing network to map mels to linear spectrograms
+				# using same architecture as the encoder
 				post_processing_cell = TacotronEncoderCell(
-				EncoderConvolutions(is_training, kernel_size=hp.enc_conv_kernel_size,
-					channels=hp.enc_conv_channels, scope='post_processing_convolutions'),
+				EncoderConvolutions(is_training,
+									kernel_size=hp.enc_conv_kernel_size,
+									channels=hp.enc_conv_channels,
+									scope='post_processing_convolutions'),
 				EncoderRNN(is_training, size=hp.encoder_lstm_units,
-					zoneout=hp.tacotron_zoneout_rate, scope='post_processing_LSTM'))
+							 zoneout=hp.tacotron_zoneout_rate,
+							 scope='post_processing_LSTM'))
 
 				expand_outputs = post_processing_cell(mel_outputs)
-				linear_outputs = FrameProjection(hp.num_freq, scope='post_processing_projection')(expand_outputs)
+				linear_outputs = FrameProjection(
+					hp.num_freq, scope='post_processing_projection'
+				)(expand_outputs)
 
-			#Grab alignments from the final decoder state
-			alignments = tf.transpose(final_decoder_state.alignment_history.stack(), [1, 2, 0])
+			# Grab alignments from the final decoder state
+			alignments = tf.transpose(
+				final_decoder_state.alignment_history.stack(), [1, 2, 0])
 
 			self.inputs = inputs
 			self.input_lengths = input_lengths
@@ -163,46 +233,94 @@ class Tacotron():
 				self.linear_outputs = linear_outputs
 				self.linear_targets = linear_targets
 			self.mel_targets = mel_targets
+			self.style_embeddings = style_embeddings
 			log('Initialized Tacotron model. Dimensions (? = dynamic shape): ')
-			log('  embedding:                {}'.format(embedded_inputs.shape))
-			log('  enc conv out:             {}'.format(enc_conv_output_shape))
-			log('  encoder out:              {}'.format(encoder_outputs.shape))
-			log('  decoder out:              {}'.format(decoder_output.shape))
-			log('  residual out:             {}'.format(residual.shape))
-			log('  projected residual out:   {}'.format(projected_residual.shape))
-			log('  mel out:                  {}'.format(mel_outputs.shape))
+			log('	embedding:			{}'.format(embedded_inputs.shape))
+			log('	enc conv out:			{}'.format(enc_conv_output_shape))
+			log('	encoder out:			{}'.format(encoder_outputs.shape))
+			log('	decoder out:			{}'.format(decoder_output.shape))
+			log('	residual out:			{}'.format(residual.shape))
+			log('	projected residual out:			{}'.format(
+				projected_residual.shape))
+			log('	mel out:			{}'.format(mel_outputs.shape))
 			if post_condition:
-				log('  linear out:               {}'.format(linear_outputs.shape))
-			log('  <stop_token> out:         {}'.format(stop_token_prediction.shape))
+				log('	linear out:			{}'.format(linear_outputs.shape))
+				log('	<stop_token> out:			{}'.format(
+					stop_token_prediction.shape))
+
+	def get_style_embeddings(self, is_training, gst_tokens,
+							 mel_targets, batch_size, hp):
+		if not is_training:
+			return self.inference_style_embeddings(gst_tokens, hp)
+
+		if hp.use_gst:
+			# Reference encoder
+			# [N, 128]
+			refnet_encoder = ReferenceEncoder(is_training, GRUCell(128))
+			refnet_outputs = refnet_encoder(mel_targets)
+			self.refnet_outputs = refnet_outputs
+
+			# Style attention
+			style_attention = MultiheadAttention(
+				# [N, 1, 128]
+				tf.expand_dims(refnet_outputs, axis=1),
+				# [N, hp.gst_tokens, hp.embedding_dim/hp.gst_heads]
+				tf.tile(tf.expand_dims(gst_tokens, axis=0),
+						[batch_size,1,1]),
+				num_heads=hp.gst_heads,
+				num_units=128,
+				attention_type=hp.style_att_type)
+
+			# Apply tanh to compress both encoder state and style embedding
+			# to the same scale.
+			# [N, 1, 256]
+			return tf.nn.tanh(style_attention.multi_head_attention(),
+							  name="style_embeddings")
+		else:
+			return None
+
+	def inference_style_embeddings(self, gst_tokens, hp):
+		self.style_weights = _style_weights(hp)
+		style_embeddings = tf.matmul(self.style_weights, gst_tokens)
+		return tf.reshape(style_embeddings, [1, 1] +
+							[hp.gst_heads * gst_tokens.get_shape().as_list()[1]])
 
 
 	def add_loss(self):
-		'''Adds loss to the model. Sets "loss" field. initialize must have been called.'''
+		'''Adds loss to the model. Sets "loss" field.
+		initialize must have been called.'''
 		with tf.variable_scope('loss') as scope:
 			hp = self._hparams
 
 			# Compute loss of predictions before postnet
-			before = tf.losses.mean_squared_error(self.mel_targets, self.decoder_output)
+			before = tf.losses.mean_squared_error(self.mel_targets,
+													self.decoder_output)
 			# Compute loss after postnet
-			after = tf.losses.mean_squared_error(self.mel_targets, self.mel_outputs)
-			#Compute <stop_token> loss (for learning dynamic generation stop)
-			stop_token_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-				labels=self.stop_token_targets,
-				logits=self.stop_token_prediction))
+			after = tf.losses.mean_squared_error(self.mel_targets,
+												 self.mel_outputs)
+			# Compute <stop_token> loss (for learning dynamic generation stop)
+			stop_token_loss = tf.reduce_mean(
+				tf.nn.sigmoid_cross_entropy_with_logits(
+					labels=self.stop_token_targets,
+					logits=self.stop_token_prediction))
 
 			if hp.predict_linear:
-				#Compute linear loss
-				#From https://github.com/keithito/tacotron/blob/tacotron2-work-in-progress/models/tacotron.py
-				#Prioritize loss for frequencies under 2000 Hz.
+				# Compute linear loss
+				# From https://github.com/keithito/tacotron/blob/tacotron2-work-in-progress/models/tacotron.py
+				# Prioritize loss for frequencies under 2000 Hz.
 				l1 = tf.abs(self.linear_targets - self.linear_outputs)
-				n_priority_freq = int(2000 / (hp.sample_rate * 0.5) * hp.num_mels)
-				linear_loss = 0.5 * tf.reduce_mean(l1) + 0.5 * tf.reduce_mean(l1[:,:,0:n_priority_freq])
+				n_priority_freq = int(2000 / (hp.sample_rate * 0.5) *
+										hp.num_mels)
+				linear_loss = (0.5 * tf.reduce_mean(l1) + 0.5 *
+								 tf.reduce_mean(l1[:,:,0:n_priority_freq]))
 			else:
 				linear_loss = 0.
 
 			# Compute the regularization weight
 			if hp.tacotron_scale_regularization:
-				reg_weight_scaler = 1. / (2 * hp.max_abs_value) if hp.symmetric_mels else 1. / (hp.max_abs_value)
+				reg_weight_scaler = (1. / (2 * hp.max_abs_value)
+									 if hp.symmetric_mels
+									 else 1. / (hp.max_abs_value))
 				reg_weight = hp.tacotron_reg_weight * reg_weight_scaler
 			else:
 				reg_weight = hp.tacotron_reg_weight
@@ -210,7 +328,7 @@ class Tacotron():
 			# Get all trainable variables
 			all_vars = tf.trainable_variables()
 			regularization = tf.add_n([tf.nn.l2_loss(v) for v in all_vars
-				if not('bias' in v.name or 'Bias' in v.name)]) * reg_weight
+				if not(re.search(Tacotron._bias_regex, v.name))]) * reg_weight
 
 			# Compute final loss term
 			self.before_loss = before
@@ -219,36 +337,46 @@ class Tacotron():
 			self.regularization_loss = regularization
 			self.linear_loss = linear_loss
 
-			self.loss = self.before_loss + self.after_loss + self.stop_token_loss + self.regularization_loss + self.linear_loss
+			self.loss = (self.before_loss + self.after_loss +
+						 self.stop_token_loss + self.regularization_loss +
+						 self.linear_loss)
 
 	def add_optimizer(self, global_step):
-		'''Adds optimizer. Sets "gradients" and "optimize" fields. add_loss must have been called.
+		'''Adds optimizer. Sets "gradients" and "optimize" fields.
+		add_loss must have been called.
 
 		Args:
-			global_step: int32 scalar Tensor representing current global step in training
+			global_step: int32 scalar Tensor representing current global step
+						 in training
 		'''
 		with tf.variable_scope('optimizer') as scope:
 			hp = self._hparams
 			if hp.tacotron_decay_learning_rate:
 				self.decay_steps = hp.tacotron_decay_steps
 				self.decay_rate = hp.tacotron_decay_rate
-				self.learning_rate = self._learning_rate_decay(hp.tacotron_initial_learning_rate, global_step)
+				self.learning_rate = self._learning_rate_decay(
+					hp.tacotron_initial_learning_rate, global_step)
 			else:
-				self.learning_rate = tf.convert_to_tensor(hp.tacotron_initial_learning_rate)
+				self.learning_rate = tf.convert_to_tensor(
+					hp.tacotron_initial_learning_rate)
 
-			optimizer = tf.train.AdamOptimizer(self.learning_rate, hp.tacotron_adam_beta1,
-				hp.tacotron_adam_beta2, hp.tacotron_adam_epsilon)
+			optimizer = tf.train.AdamOptimizer(self.learning_rate,
+												 hp.tacotron_adam_beta1,
+												 hp.tacotron_adam_beta2,
+												 hp.tacotron_adam_epsilon)
 			gradients, variables = zip(*optimizer.compute_gradients(self.loss))
 			self.gradients = gradients
-			#Just for causion
-			#https://github.com/Rayhane-mamah/Tacotron-2/issues/11
+			# Just for caution
+			# https://github.com/Rayhane-mamah/Tacotron-2/issues/11
 			clipped_gradients, _ = tf.clip_by_global_norm(gradients, 0.5)
 
-			# Add dependency on UPDATE_OPS; otherwise batchnorm won't work correctly. See:
+			# Add dependency on UPDATE_OPS; otherwise batchnorm won't work
+			# correctly. See
 			# https://github.com/tensorflow/tensorflow/issues/1122
-			with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-				self.optimize = optimizer.apply_gradients(zip(clipped_gradients, variables),
-					global_step=global_step)
+			with tf.control_dependencies(tf.get_collection(
+					tf.GraphKeys.UPDATE_OPS)):
+				self.optimize = optimizer.apply_gradients(
+					zip(clipped_gradients, variables), global_step=global_step)
 
 	def _learning_rate_decay(self, init_lr, global_step):
 		#################################################################
@@ -265,13 +393,41 @@ class Tacotron():
 		#################################################################
 		hp = self._hparams
 
-		#Compute natural exponential decay
-		lr = tf.train.exponential_decay(init_lr, 
+		# Compute natural exponential decay
+		lr = tf.train.exponential_decay(init_lr,
 			global_step - hp.tacotron_start_decay, #lr = 1e-3 at step 50k
-			self.decay_steps, 
+			self.decay_steps,
 			self.decay_rate, #lr = 1e-5 around step 300k
 			name='exponential_decay')
 
 
-		#clip learning rate by max and min values (initial and final values)
-		return tf.minimum(tf.maximum(lr, hp.tacotron_final_learning_rate), init_lr)
+		# clip learning rate by max and min values (initial and final values)
+		return tf.minimum(tf.maximum(lr, hp.tacotron_final_learning_rate),
+							init_lr)
+
+def _style_weights(hparams):
+	if hparams.inference_token == -1:
+		print("Use random weight for GST.")
+		weights = tf.random_uniform([hparams.gst_heads, hparams.gst_tokens],
+									maxval=1.0, dtype=tf.float32)
+		return tf.nn.softmax(weights, name="style_weights")
+	else:
+		# TODO: initialize weights properly
+		print("Using weight {} for style token {}.".format(
+			hparams.inference_weight, hparams.inference_token))
+		leftover_val = (1 - hparams.inference_weight) / (hparams.gst_tokens - 1)
+		single_token = [leftover_val
+						if i != hparams.inference_token
+						else hparams.inference_weight
+						for i in range(hparams.gst_tokens)]
+		weights = tf.constant(single_token * hparams.gst_heads,
+							  shape=[hparams.gst_heads, hparams.gst_tokens],
+							  name="style_weights")
+		# weights = tf.placeholder_with_default(tf.zeros([hparams.gst_heads,
+		# 												hparams.gst_tokens]),
+		# 									  shape=(hparams.gst_heads,
+		# 											 hparams.gst_tokens),
+		# 									  name="style_weights")
+		# weights = weights[:, hparams.inference_token].assign(
+		# 	[hparams.inference_weight] * hparams.gst_heads)
+	return weights

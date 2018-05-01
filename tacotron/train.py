@@ -1,9 +1,9 @@
-import numpy as np 
+import numpy as np
 from datetime import datetime
 import os
 import subprocess
 import time
-import tensorflow as tf 
+import tensorflow as tf
 import traceback
 import argparse
 
@@ -135,13 +135,13 @@ def train(log_dir, args):
 				if step % args.summary_interval == 0:
 					log('\nWriting summary at step: {}'.format(step))
 					summary_writer.add_summary(sess.run(stats), step)
-				
+
 				if step % args.checkpoint_interval == 0:
 					with open(os.path.join(log_dir,'step_counter.txt'), 'w') as file:
 						file.write(str(step))
 					log('Saving checkpoint to: {}-{}'.format(checkpoint_path, step))
 					saver.save(sess, checkpoint_path, global_step=step)
-					
+
 					log('Saving alignment, Mel-Spectrograms and griffin-lim inverted waveform..')
 					if hparams.predict_linear:
 						input_seq, mel_prediction, linear_prediction, alignment, target = sess.run([
@@ -161,11 +161,13 @@ def train(log_dir, args):
 						audio.save_wav(wav, os.path.join(wav_dir, 'step-{}-waveform-linear.wav'.format(step)))
 
 					else:
-						input_seq, mel_prediction, alignment, target = sess.run([model.inputs[0],
-							model.mel_outputs[0],
-							model.alignments[0],
-							model.mel_targets[0],
-							])
+						(input_seq, mel_prediction, alignment,
+						 target) = sess.run([
+							 model.inputs[0],
+							 model.mel_outputs[0],
+							 model.alignments[0],
+							 model.mel_targets[0],
+						 ])
 
 					#save predicted mel spectrogram to disk (debug)
 					mel_filename = 'mel-prediction-step-{}.npy'.format(step)
@@ -173,18 +175,29 @@ def train(log_dir, args):
 
 					#save griffin lim inverted wav for debug (mel -> wav)
 					wav = audio.inv_mel_spectrogram(mel_prediction.T)
-					audio.save_wav(wav, os.path.join(wav_dir, 'step-{}-waveform-mel.wav'.format(step)))
+					audio.save_wav(wav, os.path.join(
+						wav_dir, 'step-{}-waveform-mel.wav'.format(step)))
 
 					#save alignment plot to disk (control purposes)
-					plot.plot_alignment(alignment, os.path.join(plot_dir, 'step-{}-align.png'.format(step)),
-						info='{}, {}, step={}, loss={:.5f}'.format(args.model, time_string(), step, loss))
+					plot.plot_alignment(alignment, os.path.join(
+						plot_dir,
+						'step-{}-align.png'.format(step)),
+						info='{}, {}, step={}, loss={:.5f}'.format(
+							args.model, time_string(), step, loss))
 					#save real mel-spectrogram plot to disk (control purposes)
-					plot.plot_spectrogram(target, os.path.join(plot_dir, 'step-{}-real-mel-spectrogram.png'.format(step)),
-						info='{}, {}, step={}, Real'.format(args.model, time_string(), step, loss))
+					plot.plot_spectrogram(target, os.path.join(
+						plot_dir,
+						'step-{}-real-mel-spectrogram.png'.format(step)),
+						info='{}, {}, step={}, Real'.format(
+							args.model, time_string(), step, loss))
 					#save predicted mel-spectrogram plot to disk (control purposes)
-					plot.plot_spectrogram(mel_prediction, os.path.join(plot_dir, 'step-{}-pred-mel-spectrogram.png'.format(step)),
-						info='{}, {}, step={}, loss={:.5}'.format(args.model, time_string(), step, loss))
-					log('Input at step {}: {}'.format(step, sequence_to_text(input_seq)))
+					plot.plot_spectrogram(mel_prediction, os.path.join(
+						plot_dir,
+						'step-{}-pred-mel-spectrogram.png'.format(step)),
+						info='{}, {}, step={}, loss={:.5}'.format(
+							args.model, time_string(), step, loss))
+					log('Input at step {}: {}'.format(
+						step, sequence_to_text(input_seq)))
 
 		except Exception as e:
 			log('Exiting due to exception: {}'.format(e), slack=True)

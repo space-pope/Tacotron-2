@@ -117,6 +117,21 @@ hparams = tf.contrib.training.HParams(
 
 	tacotron_use_cmudict = True,
 
+	# Global Style tokens
+
+	use_gst = True,
+	# Head number for multi-head attention
+	gst_heads = 4,
+	# number of style tokens (the paper uses 10)
+	gst_tokens = 10,
+	# Attention type for style attention module (dot_attention, mlp_attention)
+	style_att_type="mlp_attention",
+	# style token to weight during inference;
+	# default reverts to random weighting across tokens
+	inference_token=-1,
+	# weight to apply to the chosen style token, if any
+	inference_weight=0.5,
+
 	#Wavenet Training TODO
 
 
