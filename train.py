@@ -1,10 +1,11 @@
+import os
 import argparse
 from tacotron.train import tacotron_train
 
 
 def main():
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--base_dir', default='')
+	parser.add_argument('--base_dir', default=os.path.expanduser('~/data'))
 	parser.add_argument('--hparams', default='',
 		help='Hyperparameter overrides as a comma-separated list of name=value pairs')
 	parser.add_argument('--input', default='training_data/train.txt')
@@ -15,7 +16,10 @@ def main():
 		help='Steps between running summary ops')
 	parser.add_argument('--checkpoint_interval', type=int, default=500,
 		help='Steps between writing checkpoints')
+	parser.add_argument('--max_hours', type=int, default=0,
+						help='Limit training data to a given number of hours.')
 	parser.add_argument('--tf_log_level', type=int, default=1, help='Tensorflow C++ log level.')
+	parser.add_argument('--gpu_fraction', type=float, default=0.8, help='Fraction of GPU memory to allocate')
 	args = parser.parse_args()
 
 	accepted_models = ['Tacotron', 'Wavenet']

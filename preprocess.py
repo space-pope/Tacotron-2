@@ -38,7 +38,7 @@ def norm_data(args):
 			args.dataset, supported_datasets))
 
 	if args.dataset == 'LJSpeech-1.1':
-		return [os.path.join(args.base_dir, args.dataset)]
+		return [os.path.join(args.data_dir, args.dataset)]
 
 	
 	if args.dataset == 'M-AILABS':
@@ -83,7 +83,8 @@ def run_preprocess(args):
 def main():
 	print('initializing preprocessing..')
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--base_dir', default='')
+	parser.add_argument('--base_dir', default=os.path.expanduser('~/data'))
+	parser.add_argument('--data_dir', default='/var/pylon/data/speech')
 	parser.add_argument('--dataset', default='LJSpeech-1.1')
 	parser.add_argument('--language', default='en_US')
 	parser.add_argument('--voice', default='female')

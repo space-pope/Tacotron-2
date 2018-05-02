@@ -139,7 +139,7 @@ hparams = tf.contrib.training.HParams(
 	'Punctuation sensitivity, is working.',
 	'Punctuation sensitivity is working.',
 	"The buses aren't the problem, they actually provide a solution.",
-	"The buses aren't the PROBLEM, they actually provide a SOLUTION.",
+	"The {bʌsəz} {ɑrnt} the problem, they actually provide a solution.",
 	"The quick brown fox jumps over the lazy dog.",
 	"Does the quick brown fox jump over the lazy dog?",
 	"Peter Piper picked a peck of pickled peppers. How many pickled peppers did Peter Piper pick?",

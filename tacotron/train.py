@@ -60,6 +60,8 @@ def train(log_dir, args):
 	coord = tf.train.Coordinator()
 	with tf.variable_scope('datafeeder') as scope:
 		feeder = Feeder(coord, input_path, hparams)
+		if args.max_hours > 0:
+				feeder.limit_data(args.max_hours, hparams)
 
 	#Set up model:
 	step_count = 0
@@ -90,6 +92,7 @@ def train(log_dir, args):
 	#Memory allocation on the GPU as needed
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth = True
+	config.gpu_options.per_process_gpu_memory_fraction = args.gpu_fraction
 
 	#Train
 	with tf.Session(config=config) as sess:
