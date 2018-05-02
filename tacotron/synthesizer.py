@@ -20,7 +20,7 @@ class Synthesizer:
 			self.model = create_model(model_name, hparams)
 			if gta:
 				self.model.initialize(inputs, input_lengths, targets, gta=gta)
-			else:		
+			else:
 				self.model.initialize(inputs, input_lengths)
 			self.mel_outputs = self.model.mel_outputs
 			self.alignment = self.model.alignments[0]
@@ -45,10 +45,15 @@ class Synthesizer:
 			feed_dict[self.model.mel_targets] = np.load(mel_filename).reshape(1, -1, 80)
 
 		if self.gta or not hparams.predict_linear:
-			mels, alignment = self.session.run([self.mel_outputs, self.alignment], feed_dict=feed_dict)
+			mels, alignment, style_weights = self.session.run(
+				[self.mel_outputs, self.alignment, self.model.style_weights],
+				feed_dict=feed_dict)
 
 		else:
-			linear, mels, alignment = self.session.run([self.linear_outputs, self.mel_outputs, self.alignment], feed_dict=feed_dict)
+			linear, mels, alignment, style_weights = self.session.run(
+				[self.linear_outputs, self.mel_outputs,
+				 self.alignment, self.model.style_weights],
+				feed_dict=feed_dict)
 			linear = linear.reshape(-1, hparams.num_freq)
 
 		mels = mels.reshape(-1, hparams.num_mels) #Thanks to @imdatsolak for pointing this out
@@ -61,7 +66,11 @@ class Synthesizer:
 		if log_dir is not None:
 			#save wav (mel -> wav)
 			wav = audio.inv_mel_spectrogram(mels.T)
-			audio.save_wav(wav, os.path.join(log_dir, 'wavs/speech-wav-{:05d}-mel.wav'.format(index)))
+			audio.save_wav(wav, os.path.join(
+				log_dir, 'wavs/speech-wav-{:05d}-mel.wav'.format(index)))
+			np.savetxt(os.path.join(
+				log_dir, 'style-weights-{:05d}.npy'.format(index)),
+					style_weights)
 
 			if hparams.predict_linear:
 				#save wav (linear -> wav)

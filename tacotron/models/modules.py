@@ -1,5 +1,6 @@
-import tensorflow as tf 
+import tensorflow as tf
 from tacotron.models.zoneout_LSTM import ZoneoutLSTMCell
+from tacotron.utils.ops import shape_list
 from tensorflow.contrib.rnn import LSTMBlockCell
 from hparams import hparams
 
@@ -18,6 +19,22 @@ def conv1d(inputs, kernel_size, channels, activation, is_training, scope):
 		activated = activation(batched)
 		return tf.layers.dropout(activated, rate=drop_rate, training=is_training,
 								name='dropout_{}'.format(scope))
+
+
+def conv2d(inputs, filters, kernel_size, strides, activation, is_training,
+		   scope):
+  with tf.variable_scope(scope):
+    conv2d_output = tf.layers.conv2d(
+      inputs,
+      filters=filters,
+      kernel_size=kernel_size,
+      strides=strides,
+      padding='same')
+    conv2d_output = tf.layers.batch_normalization(conv2d_output,
+												  training=is_training)
+    if activation is not None:
+      conv2d_output = activation(conv2d_output)
+    return conv2d_output
 
 
 class EncoderConvolutions:
@@ -235,3 +252,45 @@ class Postnet:
 					self.is_training, 'conv_layer_{}_'.format(i + 1)+self.scope)
 			x = conv1d(x, self.kernel_size, self.channels, lambda _: _, self.is_training, 'conv_layer_{}_'.format(5)+self.scope)
 		return x
+
+
+class ReferenceEncoder:
+	"""
+	Encodes mel spectograms for use by the style token layer.
+	"""
+	def __init__(self, is_training, encoder_cell, scope='ref_encoder',
+				 filters=[32, 32, 64, 64, 128, 128],
+				 kernel_size=(3,3), strides=(2,2),
+				 activation=tf.nn.tanh):
+		super(ReferenceEncoder, self).__init__()
+		self.is_training = is_training
+		self.encoder_cell = encoder_cell
+		self.scope = scope
+		self.filters = filters
+		self.kernel_size = kernel_size
+		self.strides = strides
+		self.activation = activation
+
+	def __call__(self, inputs):
+		with tf.variable_scope(self.scope):
+			ref_outputs = tf.expand_dims(inputs,axis=-1)
+			# CNN stack
+			for i, channel in enumerate(self.filters):
+				ref_outputs = conv2d(ref_outputs, channel, self.kernel_size,
+									 self.strides, tf.nn.relu,
+									 self.is_training, 'conv2d_%d' % i)
+
+			shapes = shape_list(ref_outputs)
+			ref_outputs = tf.reshape(
+				ref_outputs,
+				shapes[:-2] + [shapes[2] * shapes[3]])
+
+			# RNN
+			encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
+				self.encoder_cell, ref_outputs, dtype=tf.float32)
+
+			# [N, 128]
+			reference_state = tf.layers.dense(encoder_outputs[:,-1,:], 128,
+											  activation=self.activation)
+			return reference_state
+
