@@ -32,7 +32,7 @@ class MultiheadAttention():
     self.num_units = num_units or query.get_shape().as_list()[-1]
     self.normalize = normalize
 
-  def multi_head_attention(self):
+  def multi_head_attention(self, name=None):
     if self.num_units % self.num_heads != 0:
       raise ValueError("Multi head attention requires that num_units is a"
                        " multiple of {}".format(num_heads))
@@ -49,7 +49,7 @@ class MultiheadAttention():
       else:
         raise ValueError('Only mlp_attention and dot_attention are supported')
 
-      return self._combine_heads(style_embeddings)
+      return self._combine_heads(style_embeddings, name)
 
   def _split_heads(self, q, k, v):
     '''Split the channels into multiple heads
@@ -125,7 +125,7 @@ class MultiheadAttention():
     context = tf.matmul(weights, vs)
     return context
 
-  def _combine_heads(self, x):
+  def _combine_heads(self, x, name):
     '''Combine all heads
 
        Returns:
@@ -133,4 +133,5 @@ class MultiheadAttention():
     '''
     x = tf.transpose(x, [0, 2, 1, 3])
     x_shape = shape_list(x)
-    return tf.reshape(x, x_shape[:-2] + [self.num_heads * x_shape[-1]])
+    return tf.reshape(x, x_shape[:-2] + [self.num_heads * x_shape[-1]],
+					  name=name)
