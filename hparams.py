@@ -116,6 +116,8 @@ hparams = tf.contrib.training.HParams(
 	tacotron_teacher_forcing_ratio = 1., #Value from [0., 1.], 0.=0%, 1.=100%, determines the % of times we force next decoder inputs
 
 	tacotron_use_cmudict = True,
+	tacotron_test_batches = 5,
+	tacotron_max_test_percent = 0.2,
 
 	# Global Style tokens
 
