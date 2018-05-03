@@ -107,8 +107,9 @@ class Tacotron():
 			# [N, T_in, 128]
 			style_embeddings = tf.tile(style_embeddings,
 									   [1, tf.shape(encoder_outputs)[1], 1])
-			encoder_outputs = tf.concat([encoder_outputs, style_embeddings],
-										axis=-1)
+			encoder_outputs = encoder_outputs + style_embeddings
+			# encoder_outputs = tf.concat([encoder_outputs, style_embeddings],
+			# 							axis=-1)
 
 			# Decoder Parts
 			# Attention Decoder Prenet
@@ -258,7 +259,9 @@ class Tacotron():
 			# [N, 128]
 			refnet_encoder = ReferenceEncoder(is_training, GRUCell(128))
 			refnet_outputs = refnet_encoder(mel_targets)
-			self.refnet_outputs = refnet_outputs
+			# Apply tanh to compress both encoder state and style embedding
+			# to the same scale (before attention, per the paper)
+			refnet_outputs = tf.nn.tanh(refnet_outputs)
 
 			# Style attention
 			style_attention = MultiheadAttention(
@@ -271,19 +274,17 @@ class Tacotron():
 				num_units=128,
 				attention_type=hp.style_att_type)
 
-			# Apply tanh to compress both encoder state and style embedding
-			# to the same scale.
 			# [N, 1, 256]
-			return tf.nn.tanh(style_attention.multi_head_attention(),
-							  name="style_embeddings")
+			return style_attention.multi_head_attention("style_embeddings")
 		else:
 			return None
 
 	def inference_style_embeddings(self, gst_tokens, hp):
 		self.style_weights = _style_weights(hp)
 		style_embeddings = tf.matmul(self.style_weights, gst_tokens)
-		return tf.reshape(style_embeddings, [1, 1] +
-							[hp.gst_heads * gst_tokens.get_shape().as_list()[1]])
+		return tf.reshape(style_embeddings,
+						  [1, 1] +
+						  [hp.gst_heads * gst_tokens.get_shape().as_list()[1]])
 
 
 	def add_loss(self):
