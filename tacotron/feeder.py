@@ -48,6 +48,7 @@ class Feeder(threading.Thread):
 		data_dir = os.path.dirname(metadata_filename)
 		self._mel_dir = os.path.join(data_dir, 'mels')
 		self._linear_dir = os.path.join(data_dir, 'linear')
+		self._test_metadata = []
 		with open(metadata_filename, encoding='utf-8') as f:
 			self._metadata = [line.strip().split('|') for line in f]
 			frame_shift_ms = hparams.hop_size / hparams.sample_rate
@@ -55,6 +56,10 @@ class Feeder(threading.Thread):
 					* frame_shift_ms / (3600)
 			log('Loaded metadata for {} examples ({:.2f} hours)'.format(
 				len(self._metadata), hours))
+
+		if hparams.tacotron_test_batches > 0:
+			self._metadata, self._test_metadata = _split_data(self._metadata,
+															  hparams)
 
 		# Create placeholders for inputs and targets. Don't specify batch size
 		# because we want to be able to feed different batch sizes at eval time.
@@ -125,6 +130,21 @@ class Feeder(threading.Thread):
 			traceback.print_exc()
 			self._coord.request_stop(e)
 
+	def test_data(self):
+		"""
+		Generates a list of test batches.
+		"""
+		# Read a group of examples:
+		n = self._hparams.tacotron_batch_size
+		r = self._hparams.outputs_per_step
+		examples = [self._load_example(i, self._test_metadata)
+					for i in range(0, len(self._test_metadata))]
+		batches = _batch_examples(examples, n)
+
+		for batch in batches:
+			yield dict(zip(self._placeholders,
+						   _prepare_batch(batch, r)[:-1]))
+
 	def _enqueue_next_group(self):
 		start = time.time()
 
@@ -134,11 +154,7 @@ class Feeder(threading.Thread):
 		examples = [self._get_next_example()
 					for i in range(n * _batches_per_group)]
 
-		# Bucket examples based on similar output sequence length for efficiency
-		examples.sort(key=lambda x: x[-1])
-		batches = [examples[i: i+n] for i in range(0, len(examples), n)]
-		np.random.shuffle(batches)
-
+		batches = _batch_examples(examples, n)
 		log('\nGenerated {} batches of size {} in {:.3f} sec'.format(
 			len(batches), n, time.time() - start))
 		for batch in batches:
@@ -153,9 +169,12 @@ class Feeder(threading.Thread):
 		if self._offset >= len(self._metadata):
 			self._offset = 0
 			np.random.shuffle(self._metadata)
-		meta = self._metadata[self._offset]
+		example = self._load_example(self._offset, self._metadata)
 		self._offset += 1
+		return example
 
+	def _load_example(self, index, metadata):
+		meta = metadata[index]
 		text = meta[5]
 		if self._cmudict and random.random() < _p_cmudict:
 			text = ' '.join([self._maybe_get_ipa(word)
@@ -176,6 +195,14 @@ class Feeder(threading.Thread):
 		ipa = self._cmudict.lookup(word, strip_emphasis)
 		return '{%s}' % ipa[0] \
 			if ipa is not None and random.random() < 0.5 else word
+
+
+def _batch_examples(examples, n):
+  # Bucket examples based on similar output sequence length for efficiency:
+  examples.sort(key=lambda x: x[-1])
+  batches = [examples[i:i+n] for i in range(0, len(examples), n)]
+  np.random.shuffle(batches)
+  return batches
 
 
 def _prepare_batch(batch, outputs_per_step):
@@ -218,3 +245,13 @@ def _pad_token_target(t, length):
 def _round_up(x, multiple):
 	remainder = x % multiple
 	return x if remainder == 0 else x + multiple - remainder
+
+def _split_data(metadata, hparams):
+	""" Splits a data set into a tuple of train and test samples. """
+	test_batches = hparams.tacotron_test_batches
+	batch_size = hparams.tacotron_batch_size
+	total_samples = len(metadata)
+	while batch_size * test_batches > total_samples:
+		test_batches -= 1
+	test_samples = test_batches * batch_size
+	return metadata[:-test_samples], metadata[-test_samples:]

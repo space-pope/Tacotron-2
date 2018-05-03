@@ -21,6 +21,7 @@ def add_stats(model):
 		tf.summary.histogram('mel_outputs', model.mel_outputs)
 		tf.summary.histogram('mel_targets', model.mel_targets)
 		tf.summary.histogram('alignments', model.alignments)
+		tf.summary.scalar('avg_alignment_mean', model.alignment_summary)
 		tf.summary.scalar('before_loss', model.before_loss)
 		tf.summary.scalar('after_loss', model.after_loss)
 		if hparams.predict_linear:
@@ -139,6 +140,17 @@ def train(log_dir, args):
 				if step % args.summary_interval == 0:
 					log('\nWriting summary at step: {}'.format(step))
 					summary_writer.add_summary(sess.run(stats), step)
+
+				if step % args.test_interval == 0:
+					log('Testing at step {}'.format(step))
+					losses = [sess.run(model.loss, feed_dict=fed)
+							  for fed in feeder.test_data()]
+					loss = tf.add_n(losses) / len(losses)
+					log('Avg test loss: {}'.format(loss.eval(session=sess)))
+					test_stats = tf.summary.scalar('test_loss', loss).eval(
+						session=sess)
+					summary_writer.add_summary(test_stats, step)
+
 
 				if step % args.checkpoint_interval == 0:
 					with open(os.path.join(log_dir,'step_counter.txt'), 'w') as file:
