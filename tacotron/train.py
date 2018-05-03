@@ -21,6 +21,7 @@ def add_stats(model):
 		tf.summary.histogram('mel_outputs', model.mel_outputs)
 		tf.summary.histogram('mel_targets', model.mel_targets)
 		tf.summary.histogram('alignments', model.alignments)
+		tf.summary.scalar('avg_alignment_mean', model.alignment_summary)
 		tf.summary.scalar('before_loss', model.before_loss)
 		tf.summary.scalar('after_loss', model.after_loss)
 		if hparams.predict_linear:

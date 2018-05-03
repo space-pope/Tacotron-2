@@ -227,6 +227,7 @@ class Tacotron():
 			self.input_lengths = input_lengths
 			self.decoder_output = decoder_output
 			self.alignments = alignments
+			self.alignment_summary = self._summarize_alignment(batch_size)
 			self.stop_token_prediction = stop_token_prediction
 			self.stop_token_targets = stop_token_targets
 			self.mel_outputs = mel_outputs
@@ -286,6 +287,10 @@ class Tacotron():
 						  [1, 1] +
 						  [hp.gst_heads * gst_tokens.get_shape().as_list()[1]])
 
+	def _summarize_alignment(self, batch_size):
+		reversed_alignments = tf.reverse(self.alignments, [1])
+		total = tf.reduce_mean(tf.matrix_diag_part(reversed_alignments))
+		return total / tf.cast(batch_size, tf.float32)
 
 	def add_loss(self):
 		'''Adds loss to the model. Sets "loss" field.
