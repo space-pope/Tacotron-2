@@ -175,8 +175,14 @@ hparams = tf.contrib.training.HParams(
     'the only purpose of this whole sentence is to evaluate the scalability of the model for very long sentences. This is not even a long sentence anymore, it has become an entire paragraph. Should I stop now? Let\'s add this last sentence in which we talk about nothing special.',
 	        'Thank you so much for your support!!',
             'Who wants some chicken?'
-	]
+	],
 
+	#Eval sentences for style tokens
+	gst_sentences = [
+		"The buses aren't the problem, they actually provide a solution.",
+		"This is a sample of reading a set, of random words, as if it were a series.",
+		"Who wants some chicken?"
+	]
 	)
 
 def hparams_debug_string():
