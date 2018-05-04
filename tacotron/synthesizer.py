@@ -11,13 +11,14 @@ from datetime import datetime
 
 
 class Synthesizer:
-	def load(self, checkpoint_path, gta=False, model_name='Tacotron'):
+	def load(self, checkpoint_path, hp=hparams,
+			 gta=False, model_name='Tacotron'):
 		print('Constructing model: %s' % model_name)
 		inputs = tf.placeholder(tf.int32, [1, None], 'inputs')
 		input_lengths = tf.placeholder(tf.int32, [1], 'input_lengths')
-		targets = tf.placeholder(tf.float32, [1, None, hparams.num_mels], 'mel_targets')
+		targets = tf.placeholder(tf.float32, [1, None, hp.num_mels], 'mel_targets')
 		with tf.variable_scope('model') as scope:
-			self.model = create_model(model_name, hparams)
+			self.model = create_model(model_name, hp)
 			if gta:
 				self.model.initialize(inputs, input_lengths, targets, gta=gta)
 			else:
@@ -32,6 +33,9 @@ class Synthesizer:
 		saver = tf.train.Saver()
 		saver.restore(self.session, checkpoint_path)
 
+	def close(self):
+		self.session.close()
+		tf.reset_default_graph()
 
 	def synthesize(self, text, index, out_dir, log_dir, mel_filename):
 		cleaner_names = [x.strip() for x in hparams.cleaners.split(',')]
