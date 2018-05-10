@@ -35,6 +35,7 @@ def add_stats(model):
 		tf.summary.scalar('max_gradient_norm', tf.reduce_max(gradient_norms)) #visualize gradients (in case of explosion)
 		return tf.summary.merge_all()
 
+
 def time_string():
 	return datetime.now().strftime('%Y-%m-%d %H:%M')
 
@@ -142,14 +143,17 @@ def train(log_dir, args):
 					summary_writer.add_summary(sess.run(stats), step)
 
 				if step % args.test_interval == 0:
-					log('Testing at step {}'.format(step))
+					log('\nTesting at step {}'.format(step))
 					losses = [sess.run(model.loss, feed_dict=fed)
 							  for fed in feeder.test_data()]
-					loss = tf.add_n(losses) / len(losses)
-					log('Avg test loss: {}'.format(loss.eval(session=sess)))
-					test_stats = tf.summary.scalar('test_loss', loss).eval(
+					test_loss = (tf.add_n(losses) / len(losses)).eval(
 						session=sess)
-					summary_writer.add_summary(test_stats, step)
+					log('Avg test loss: {}'.format(test_loss))
+					test_summary = tf.Summary(value=[
+						tf.Summary.Value(tag="model/stats/test_loss",
+										 simple_value=test_loss)
+					])
+					summary_writer.add_summary(test_summary, step)
 
 
 				if step % args.checkpoint_interval == 0:

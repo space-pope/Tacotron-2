@@ -21,9 +21,12 @@ def run_eval(args, checkpoint_path, output_dir):
 	os.makedirs(os.path.join(log_dir, 'wavs'), exist_ok=True)
 	os.makedirs(os.path.join(log_dir, 'plots'), exist_ok=True)
 
+	# text = hparams.sentences[-1]
+
 	with open(os.path.join(eval_dir, 'map.txt'), 'w') as file:
 		for i, text in enumerate(tqdm(hparams.sentences)):
-			start = time.time()
+		# for i in tqdm(range(10)):
+			# start = time.time()
 			mel_filename = synth.synthesize(text, i+1, eval_dir, log_dir, None)
 
 			file.write('{}|{}\n'.format(text, mel_filename))

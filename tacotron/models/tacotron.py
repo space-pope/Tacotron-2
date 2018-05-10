@@ -80,6 +80,8 @@ class Tacotron():
 					dtype=tf.float32,
 					initializer=tf.truncated_normal_initializer(stddev=0.5))
 				self.gst_tokens = gst_tokens
+			else:
+				self.gst_tokens = None
 
 			# Encoder Cell ==> [batch_size, encoder_steps, encoder_lstm_units]
 			encoder_cell = TacotronEncoderCell(
@@ -99,15 +101,13 @@ class Tacotron():
 			# GST embeddings
 			# [N, 1, 128]
 			style_embeddings = self.get_style_embeddings(
-				is_training, gst_tokens, mel_targets, batch_size, hp)
-			if style_embeddings is None:
-				style_embeddings = tf.expand_dims(encoder_outputs, axis=1)
-
-			# Add style embedding to every text encoder state
-			# [N, T_in, 128]
-			style_embeddings = tf.tile(style_embeddings,
-									   [1, tf.shape(encoder_outputs)[1], 1])
-			encoder_outputs = encoder_outputs + style_embeddings
+				is_training, self.gst_tokens, mel_targets, batch_size, hp)
+			if style_embeddings is not None:
+				# Add style embedding to every text encoder state
+				# [N, T_in, 128]
+				style_embeddings = tf.tile(style_embeddings,
+										   [1, tf.shape(encoder_outputs)[1], 1])
+				encoder_outputs = encoder_outputs + style_embeddings
 			# encoder_outputs = tf.concat([encoder_outputs, style_embeddings],
 			# 							axis=-1)
 
@@ -252,10 +252,10 @@ class Tacotron():
 
 	def get_style_embeddings(self, is_training, gst_tokens,
 							 mel_targets, batch_size, hp):
-		if not is_training:
-			return self.inference_style_embeddings(gst_tokens, hp)
-
 		if hp.use_gst:
+			if not is_training:
+				return self.inference_style_embeddings(gst_tokens, hp)
+
 			# Reference encoder
 			# [N, 128]
 			refnet_encoder = ReferenceEncoder(is_training, GRUCell(128))
@@ -414,6 +414,9 @@ class Tacotron():
 def _style_weights(hparams):
 	if hparams.inference_token == -1:
 		print("Use random weight for GST.")
+		# weights = tf.ones([hparams.gst_heads, hparams.gst_tokens],
+		# 				   name="style_weights")
+		# return weights
 		weights = tf.random_uniform([hparams.gst_heads, hparams.gst_tokens],
 									maxval=1.0, dtype=tf.float32)
 		return tf.nn.softmax(weights, name="style_weights")

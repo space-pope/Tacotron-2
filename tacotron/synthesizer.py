@@ -74,7 +74,7 @@ class Synthesizer:
 				log_dir, 'wavs/speech-wav-{:05d}-mel.wav'.format(index)))
 			np.savetxt(os.path.join(
 				log_dir, 'style-weights-{:05d}.npy'.format(index)),
-					style_weights)
+					   style_weights, fmt='%1.3f')
 
 			if hparams.predict_linear:
 				#save wav (linear -> wav)
