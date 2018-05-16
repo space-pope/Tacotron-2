@@ -14,7 +14,7 @@ _curly_re = re.compile(r'(.*?)\{(.+?)\}(.*)')
 def text_to_sequence(text, cleaner_names):
   '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
 
-    The text can optionally have ARPAbet sequences enclosed in curly braces embedded
+    The text can optionally have IPA sequences enclosed in curly braces embedded
     in it. For example, "Turn left on {HH AW1 S S T AH0 N} Street."
 
     Args:
@@ -26,7 +26,7 @@ def text_to_sequence(text, cleaner_names):
   '''
   sequence = []
 
-  # Check for curly braces and treat their contents as ARPAbet:
+  # Check for curly braces and treat their contents as IPA:
   while len(text):
     m = _curly_re.match(text)
     if not m:
@@ -47,11 +47,11 @@ def sequence_to_text(sequence):
   for symbol_id in sequence:
     if symbol_id in _id_to_symbol:
       s = _id_to_symbol[symbol_id]
-      # Enclose ARPAbet back in curly braces:
+      # Enclose IPA back in curly braces:
       if len(s) > 1 and s[0] == '@':
         s = '{%s}' % s[1:]
       result += s
-  return result.replace('}{', ' ')
+  return result.replace('}{', '')
 
 
 def _clean_text(text, cleaner_names):
@@ -68,7 +68,7 @@ def _symbols_to_sequence(symbols):
 
 
 def _arpabet_to_sequence(text):
-  return _symbols_to_sequence(['@' + s for s in text.split()])
+  return _symbols_to_sequence(['@' + s if s != ' ' else s for s in text])
 
 
 def _should_keep_symbol(s):

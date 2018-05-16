@@ -40,9 +40,9 @@ def norm_data(args):
 	if args.dataset == 'LJSpeech-1.1':
 		return [os.path.join(args.base_dir, args.dataset)]
 
-	
+
 	if args.dataset == 'M-AILABS':
-		supported_languages = ['en_US', 'en_UK', 'fr_FR', 'it_IT', 'de_DE', 'es_ES', 'ru_RU', 
+		supported_languages = ['en_US', 'en_UK', 'fr_FR', 'it_IT', 'de_DE', 'es_ES', 'ru_RU',
 			'uk_UK', 'pl_PL', 'nl_NL', 'pt_PT', 'fi_FI', 'se_SE', 'tr_TR', 'ar_SA']
 		if args.language not in supported_languages:
 			raise ValueError('Please enter a supported language to use from M-AILABS dataset! \n{}'.format(
@@ -83,8 +83,10 @@ def run_preprocess(args):
 def main():
 	print('initializing preprocessing..')
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--base_dir', default='')
-	parser.add_argument('--dataset', default='LJSpeech-1.1')
+	parser.add_argument('--base_dir', default=os.path.expanduser('~/data'))
+	parser.add_argument('--data_dir', default='/var/pylon/data/speech')
+	parser.add_argument('--dataset', default='LJSpeech-1.1',
+						choices=['LJSpeech-1.1', 'M-AILABS', 'shelby_foote'])
 	parser.add_argument('--language', default='en_US')
 	parser.add_argument('--voice', default='female')
 	parser.add_argument('--reader', default='mary_ann')
