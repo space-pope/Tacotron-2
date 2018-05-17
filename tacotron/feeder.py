@@ -57,9 +57,6 @@ class Feeder(threading.Thread):
 			log('Loaded metadata for {} examples ({:.2f} hours)'.format(
 				len(self._metadata), hours))
 
-		if hparams.tacotron_test_batches > 0:
-			self._metadata, self._test_metadata = _split_data(self._metadata,
-															  hparams)
 
 		# Create placeholders for inputs and targets. Don't specify batch size
 		# because we want to be able to feed different batch sizes at eval time.
@@ -245,13 +242,3 @@ def _pad_token_target(t, length):
 def _round_up(x, multiple):
 	remainder = x % multiple
 	return x if remainder == 0 else x + multiple - remainder
-
-def _split_data(metadata, hparams):
-	""" Splits a data set into a tuple of train and test samples. """
-	test_batches = hparams.tacotron_test_batches
-	batch_size = hparams.tacotron_batch_size
-	total_samples = len(metadata)
-	while batch_size * test_batches > total_samples:
-		test_batches -= 1
-	test_samples = test_batches * batch_size
-	return metadata[:-test_samples], metadata[-test_samples:]
